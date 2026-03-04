@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+dist/
+build/
+*.spec
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Config with credentials
+config/config.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.env
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Logs
+*.log
+
+# PyInstaller
+*.manifest
+*.pem
+
+docs/local

@@ -1,0 +1,25 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "estship-uploader"
+version = "1.0.0"
+description = "Estimated Ship Date bulk uploader for SQL Server ERP systems via ODBC"
+requires-python = ">=3.12"
+dependencies = ["pyodbc>=5.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "pyinstaller>=6.0"]
+
+[project.scripts]
+estship-uploader = "estship_uploader.main:main"
+
+[project.gui-scripts]
+EstShipUploader = "estship_uploader.main:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/estship_uploader"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
