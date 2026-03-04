@@ -13,7 +13,7 @@ def main():
     cmd = [
         sys.executable, "-m", "PyInstaller",
         "--onefile",
-        "--console",
+        "--windowed",
         "--name=EstShipUploader",
         f"--add-data={config_example};config",
     ]
