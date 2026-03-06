@@ -58,9 +58,19 @@ class EstShipApp(tk.Tk):
         conn_frame = ttk.LabelFrame(self, text="Connection", padding=8)
         conn_frame.pack(fill=tk.X, padx=10, pady=(5, 5))
 
-        self._conn_info_var = tk.StringVar(
-            value=f"DSN: {self.config.dsn}  |  Database: {self.config.database}")
-        ttk.Label(conn_frame, textvariable=self._conn_info_var).pack(anchor=tk.W)
+        # DSN / Database row
+        dsn_row = ttk.Frame(conn_frame)
+        dsn_row.pack(fill=tk.X, pady=(0, 0))
+
+        ttk.Label(dsn_row, text="DSN:").pack(side=tk.LEFT)
+        self._dsn_var = tk.StringVar(value=self.config.dsn)
+        ttk.Entry(dsn_row, textvariable=self._dsn_var, width=18).pack(
+            side=tk.LEFT, padx=(4, 12))
+
+        ttk.Label(dsn_row, text="Database:").pack(side=tk.LEFT)
+        self._database_var = tk.StringVar(value=self.config.database)
+        ttk.Entry(dsn_row, textvariable=self._database_var, width=18).pack(
+            side=tk.LEFT, padx=(4, 0))
 
         # Credentials row
         creds_row = ttk.Frame(conn_frame)
@@ -82,7 +92,7 @@ class EstShipApp(tk.Tk):
 
         self._save_creds_var = tk.BooleanVar(
             value=bool(self.config.config_path and self.config.username))
-        ttk.Checkbutton(bottom_row, text="Save credentials",
+        ttk.Checkbutton(bottom_row, text="Save settings",
                         variable=self._save_creds_var).pack(side=tk.LEFT)
 
         self.btn_test_conn = ttk.Button(bottom_row, text="Test Connection",
@@ -260,13 +270,19 @@ class EstShipApp(tk.Tk):
     # ------------------------------------------------------------------
 
     def _sync_credentials(self):
-        """Push GUI credential fields into config; close conn if they changed."""
+        """Push GUI credential/connection fields into config; close conn if they changed."""
         new_user = self._user_var.get()
         new_pass = self._pass_var.get()
+        new_dsn = self._dsn_var.get().strip()
+        new_db = self._database_var.get().strip()
         changed = (new_user != self.config.username
-                   or new_pass != self.config.password)
+                   or new_pass != self.config.password
+                   or new_dsn != self.config.dsn
+                   or new_db != self.config.database)
         self.config.username = new_user
         self.config.password = new_pass
+        self.config.dsn = new_dsn
+        self.config.database = new_db
         if changed and self.conn is not None:
             try:
                 self.conn.close()
@@ -353,7 +369,7 @@ class EstShipApp(tk.Tk):
                 if self._save_creds_var.get():
                     try:
                         save_credentials(self.config)
-                        self._conn_status_var.set("Connected — credentials saved")
+                        self._conn_status_var.set("Connected — settings saved")
                     except Exception as e:
                         logger.error("Failed to save credentials: %s", e)
                         self._conn_status_var.set("Connected (save failed)")

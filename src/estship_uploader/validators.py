@@ -36,6 +36,7 @@ def import_to_staging(conn, rows: list[tuple]) -> StepResult:
     """Step 2: Insert CSV rows into staging table via parameterized executemany."""
     try:
         cursor = conn.cursor()
+        cursor.fast_executemany = True
         cursor.executemany(
             "INSERT INTO dbo.EstShipUpload_Staging "
             "(SO_Number, Line_Item, Item_Number, Est_Ship_Date) "
@@ -108,24 +109,26 @@ def check_item_numbers(conn) -> StepResult:
         cursor.execute("""
             SELECT
                 s.SO_Number, s.Line_Item,
-                LTRIM(RTRIM(s.Item_Number)) AS csv_item,
-                LTRIM(RTRIM(t.citemno)) AS db_item,
-                CASE WHEN LTRIM(RTRIM(s.Item_Number)) = LTRIM(RTRIM(t.citemno))
-                    THEN 1 ELSE 0 END AS match
+                s.Item_Number AS csv_item,
+                t.citemno AS db_item
             FROM dbo.EstShipUpload_Staging s
             JOIN sostrs t ON t.csono = s.SO_Number AND t.clineitem = s.Line_Item
         """)
         rows = cursor.fetchall()
         cursor.close()
 
-        mismatches = [r for r in rows if r[4] == 0]
+        mismatches = [
+            r for r in rows
+            if (r[2] or "").strip() != (r[3] or "").strip()
+        ]
         total = len(rows)
 
         if not mismatches:
             return StepResult("PASS", f"Item cross-check passed ({total}/{total} match)")
 
         details = [
-            f"  SO {r[0].strip()} / CSV item '{r[2]}' != DB item '{r[3]}'"
+            f"  SO {(r[0] or '').strip()} / CSV item '{(r[2] or '').strip()}'"
+            f" != DB item '{(r[3] or '').strip()}'"
             for r in mismatches
         ]
         return StepResult(

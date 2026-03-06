@@ -120,8 +120,13 @@ def save_credentials(config: AppConfig) -> None:
     if not ini.has_section("database"):
         ini.add_section("database")
 
+    ini.set("database", "dsn", config.dsn)
     ini.set("database", "username", config.username)
     ini.set("database", "password", config.password)
+
+    if not ini.has_section("settings"):
+        ini.add_section("settings")
+    ini.set("settings", "database", config.database)
 
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w") as f:
