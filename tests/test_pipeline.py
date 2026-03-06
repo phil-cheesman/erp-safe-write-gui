@@ -39,10 +39,16 @@ def test_validation_all_pass(mock_validators, mock_updater, mock_connection):
     mock_validators.check_date_anomalies.return_value = _pass_step("no anomalies")
     mock_validators.get_summary.return_value = _pass_step("3 rows ready")
 
+    # Mock the cursor for the upload_count query after summary
+    mock_cursor = MagicMock()
+    mock_cursor.fetchone.return_value = (3,)
+    mock_connection.cursor.return_value = mock_cursor
+
     rows = [("SO1", "L1", "ITEM1", "2026-04-15")] * 3
     result = run_validation(mock_connection, rows, "testdb")
 
     assert result.success is True
+    assert result.upload_count == 3
     assert len(result.steps) == 8
 
 
@@ -74,6 +80,11 @@ def test_validation_warning_passes_through(mock_validators, mock_updater, mock_c
     mock_validators.check_date_changes.return_value = _pass_step("0 changes")
     mock_validators.check_date_anomalies.return_value = _warn_step("3 past dates")
     mock_validators.get_summary.return_value = _pass_step("3 rows ready")
+
+    # Mock the cursor for the upload_count query after summary
+    mock_cursor = MagicMock()
+    mock_cursor.fetchone.return_value = (3,)
+    mock_connection.cursor.return_value = mock_cursor
 
     rows = [("SO1", "L1", "ITEM1", "2026-04-15")] * 3
     result = run_validation(mock_connection, rows, "testdb")

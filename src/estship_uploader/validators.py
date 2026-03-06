@@ -68,7 +68,12 @@ def verify_import(conn, expected_count: int) -> StepResult:
 
 
 def check_so_line_exists(conn) -> StepResult:
-    """Step 4: Check all staging SO/Line pairs exist in sostrs."""
+    """Step 4: Check all staging SO/Line pairs exist in sostrs.
+
+    Missing rows are removed from staging and reported as a WARNING so the
+    upload can proceed with the remaining rows.  These are typically line
+    items that have already shipped or been closed.
+    """
     try:
         cursor = conn.cursor()
         cursor.execute("""
@@ -89,13 +94,28 @@ def check_so_line_exists(conn) -> StepResult:
         if not missing:
             return StepResult("PASS", f"SO/Line check passed ({total}/{total} found)")
 
+        # Remove missing rows from staging so downstream steps work on valid rows only
+        cursor = conn.cursor()
+        cursor.execute("""
+            DELETE s FROM dbo.EstShipUpload_Staging s
+            WHERE NOT EXISTS (
+                SELECT 1 FROM sostrs t
+                WHERE t.csono = s.SO_Number AND t.clineitem = s.Line_Item
+            )
+        """)
+        removed = cursor.rowcount
+        cursor.close()
+
+        remaining = total - removed
         details = [
-            f"  SO {r[0].strip()} / {r[2].strip()} — not found in sostrs"
+            f"  SO {r[0].strip()} / {r[2].strip()} — not found in sostrs (removed from staging)"
             for r in missing
         ]
+        details.append(f"  {remaining} rows remain in staging for upload")
+
         return StepResult(
-            "FAIL",
-            f"SO/Line check failed: {len(missing)} of {total} not found",
+            "WARNING",
+            f"SO/Line check: {len(missing)} of {total} not found — removed from staging",
             details,
         )
     except Exception as e:

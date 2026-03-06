@@ -141,7 +141,7 @@ def main() -> None:
 
     # Run upload
     print("\n--- Upload ---")
-    upload_result = run_upload(conn, len(rows), database=config.database)
+    upload_result = run_upload(conn, val_result.upload_count, database=config.database)
     for step in upload_result.steps:
         msg = format_step_result(step)
         print(msg)

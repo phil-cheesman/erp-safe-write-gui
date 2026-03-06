@@ -49,6 +49,7 @@ def run_validation(conn, rows: list[tuple], database: str, on_step=None) -> Pipe
             return result
 
         # Step 4: Check SO/Line exists in sostrs
+        # WARNING = some rows removed from staging; FAIL = SQL error
         step = validators.check_so_line_exists(conn)
         _emit(result, step, on_step)
         if step.status == "FAIL":
@@ -70,9 +71,20 @@ def run_validation(conn, rows: list[tuple], database: str, on_step=None) -> Pipe
         _emit(result, step, on_step)
         # WARNING is OK — continue
 
-        # Step 8: Summary
+        # Step 8: Summary — also captures final staging count for upload
         step = validators.get_summary(conn)
         _emit(result, step, on_step)
+
+        # Extract the upload count from staging (after any removals in step 4)
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM dbo.EstShipUpload_Staging")
+        result.upload_count = cursor.fetchone()[0]
+        cursor.close()
+
+        if result.upload_count == 0:
+            _emit(result, StepResult(
+                "FAIL", "No rows remaining in staging after validation"), on_step)
+            return result
 
         result.success = True
 

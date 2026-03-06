@@ -20,3 +20,4 @@ class PipelineResult:
 
     steps: list[StepResult] = field(default_factory=list)
     success: bool = False
+    upload_count: int = 0

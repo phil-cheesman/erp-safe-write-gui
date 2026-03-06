@@ -75,9 +75,11 @@ def test_so_line_some_missing(mock_connection, mock_cursor):
         ("  SO1     ", "  L1      ", "ITEM1", "2026-04-15", 1),
         ("  SO2     ", "  L2      ", "ITEM2", "2026-04-16", 0),  # not found
     ]
+    mock_cursor.rowcount = 1
     result = check_so_line_exists(mock_connection)
-    assert result.status == "FAIL"
+    assert result.status == "WARNING"
     assert "1 of 2" in result.message
+    assert "removed from staging" in result.message
 
 
 # -- Step 5: check_item_numbers --

@@ -395,6 +395,7 @@ class EstShipApp(tk.Tk):
         def on_complete(result):
             self._validation_has_fail = any(
                 s.status == "FAIL" for s in result.steps)
+            self._upload_count = result.upload_count
             if result.success:
                 self._append_result("\nValidation passed.", "PASS")
                 self._set_state(VALIDATED)
@@ -405,10 +406,11 @@ class EstShipApp(tk.Tk):
         self._run_in_thread(worker, on_complete)
 
     def _on_upload(self):
+        upload_count = getattr(self, '_upload_count', len(self.rows))
         if not messagebox.askokcancel(
                 "Confirm Upload",
                 f"This will permanently overwrite the Estimated Ship Date "
-                f"(idestship) for {len(self.rows)} sales order line items "
+                f"(idestship) for {upload_count} sales order line items "
                 f"in the sostrs table.\n\n"
                 f"Any existing estimated ship dates on these line items "
                 f"will be replaced with the values from your CSV.\n\n"
@@ -422,7 +424,7 @@ class EstShipApp(tk.Tk):
 
         def worker():
             from estship_uploader.pipeline import run_upload
-            return run_upload(self.conn, len(self.rows),
+            return run_upload(self.conn, upload_count,
                               database=self.config.database,
                               on_step=step_callback)
 
