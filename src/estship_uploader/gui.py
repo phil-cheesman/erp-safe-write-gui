@@ -143,6 +143,10 @@ class EstShipApp(tk.Tk):
                                        command=self._on_view_log)
         self.btn_view_log.pack(side=tk.LEFT)
 
+        self.btn_how = ttk.Button(action_frame, text="How It Works",
+                                  command=self._on_how_it_works)
+        self.btn_how.pack(side=tk.RIGHT)
+
         # Results
         results_frame = ttk.LabelFrame(self, text="Results", padding=8)
         results_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
@@ -448,6 +452,128 @@ class EstShipApp(tk.Tk):
             os.startfile(log_path)
         except Exception as e:
             messagebox.showerror("View Log", f"Could not open log file:\n{e}")
+
+    def _on_how_it_works(self):
+        win = tk.Toplevel(self)
+        win.title("How It Works — EstShip Date Uploader")
+        win.geometry("720x620")
+        win.minsize(500, 400)
+
+        text = scrolledtext.ScrolledText(win, wrap=tk.WORD,
+                                         font=("Consolas", 10))
+        text.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
+
+        text.tag_configure("heading", font=("Segoe UI", 12, "bold"))
+        text.tag_configure("subheading", font=("Segoe UI", 10, "bold"))
+        text.tag_configure("sql", font=("Consolas", 9), foreground="#336699",
+                           lmargin1=20, lmargin2=20)
+        text.tag_configure("body", font=("Segoe UI", 10))
+
+        def h(t):
+            text.insert(tk.END, t + "\n", "heading")
+
+        def sh(t):
+            text.insert(tk.END, "\n" + t + "\n", "subheading")
+
+        def b(t):
+            text.insert(tk.END, t + "\n", "body")
+
+        def sql(t):
+            text.insert(tk.END, t + "\n", "sql")
+
+        h("EstShip Date Uploader")
+        b("")
+        b("This app bulk-updates the Estimated Ship Date (idestship) on sales")
+        b("order line items in the ERP database (sostrs table) using data from")
+        b("a CSV file. It replaces a manual multi-step SQL workflow with a")
+        b("validated, one-click upload.")
+        b("")
+        b("Every change runs inside a database transaction. If anything goes")
+        b("wrong at any step, the entire batch is rolled back — no partial")
+        b("updates, no corrupt data.")
+
+        h("\nPipeline Steps")
+
+        sh("Phase A: Setup & Import")
+
+        b("Step 1 — Create a temporary staging table:")
+        sql("    CREATE TABLE dbo.EstShipUpload_Staging (")
+        sql("        SO_Number     CHAR(10),")
+        sql("        Line_Item     CHAR(10),")
+        sql("        Item_Number   CHAR(20),")
+        sql("        Est_Ship_Date DATE")
+        sql("    )")
+
+        b("\nStep 2 — Import CSV rows via parameterized INSERT (no string")
+        b("formatting — prevents SQL injection):")
+        sql("    INSERT INTO dbo.EstShipUpload_Staging")
+        sql("        (SO_Number, Line_Item, Item_Number, Est_Ship_Date)")
+        sql("    VALUES (?, ?, ?, ?)    -- one row per CSV line")
+
+        b("\nStep 3 — Verify row count matches the CSV.")
+
+        sh("Phase B: Validation")
+
+        b("Step 4 — Check every SO/Line pair exists in the ERP:")
+        sql("    SELECT s.SO_Number, s.Line_Item,")
+        sql("        CASE WHEN EXISTS (")
+        sql("            SELECT 1 FROM sostrs t")
+        sql("            WHERE t.csono = s.SO_Number")
+        sql("              AND t.clineitem = s.Line_Item")
+        sql("        ) THEN 1 ELSE 0 END AS found")
+        sql("    FROM dbo.EstShipUpload_Staging s")
+        b("Missing rows are removed from staging and reported as a warning.")
+
+        b("\nStep 5 — Cross-check item numbers (CSV vs database):")
+        sql("    SELECT s.Item_Number AS csv_item, t.citemno AS db_item")
+        sql("    FROM dbo.EstShipUpload_Staging s")
+        sql("    JOIN sostrs t ON t.csono = s.SO_Number")
+        sql("        AND t.clineitem = s.Line_Item")
+        b("Mismatches block the upload (likely wrong line item mapping).")
+
+        b("\nStep 6 — Show before/after date comparison.")
+        b("Step 7 — Flag date anomalies (past dates, >1 year out, NULLs).")
+        b("  Warnings only — these don't block upload.")
+        b("Step 8 — Final count: N rows ready for upload.")
+
+        sh("Phase C: Upload (Transaction)")
+
+        b("Step 9 — Execute the UPDATE inside a transaction:")
+        sql("    BEGIN TRANSACTION")
+        sql("")
+        sql("    UPDATE t")
+        sql("    SET t.idestship = s.Est_Ship_Date")
+        sql("    FROM sostrs t")
+        sql("    JOIN dbo.EstShipUpload_Staging s")
+        sql("        ON t.csono = s.SO_Number")
+        sql("        AND t.clineitem = s.Line_Item")
+
+        b("\nStep 10 — Validate while still in the transaction:")
+        b("  - Count mismatches (must be 0)")
+        b("  - Verify update count matches staging count")
+        b("  - Confirm @@TRANCOUNT = 1 (transaction still open)")
+
+        b("\nStep 11 — COMMIT or ROLLBACK:")
+        b("  If all checks pass: COMMIT (changes become permanent)")
+        b("  If anything fails: ROLLBACK (zero changes written)")
+
+        b("\nStep 12 — Post-commit verification (row count + date range).")
+
+        sh("Phase D: Cleanup")
+
+        b("Step 13 — Drop the staging table (always runs, even on failure).")
+
+        h("\nSafety Guarantees")
+        b("")
+        b("- All data inserted via parameterized queries (not string formatting)")
+        b("- UPDATE runs inside an explicit transaction")
+        b("- Automatic ROLLBACK on any mismatch or error during upload")
+        b("- Staging table is always cleaned up, even if the app crashes")
+        b("- Credentials are stripped from all error messages and logs")
+        b("- Item number cross-check catches wrong SO/Line mappings before")
+        b("  any data is written")
+
+        text.config(state=tk.DISABLED)
 
     def _on_close(self):
         if self.conn is not None:
