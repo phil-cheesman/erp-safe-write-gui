@@ -61,7 +61,15 @@ def parse_csv(filepath: str) -> tuple[list[tuple], int, list[str], list[str]]:
     skipped = 0
     errors: list[str] = []
 
-    with open(filepath, newline="", encoding="utf-8-sig") as f:
+    try:
+        with open(filepath, newline="", encoding="utf-8-sig") as f:
+            f.read()
+    except UnicodeDecodeError:
+        encoding = "cp1252"
+    else:
+        encoding = "utf-8-sig"
+
+    with open(filepath, newline="", encoding=encoding) as f:
         reader = csv.DictReader(f)
 
         # Validate headers
