@@ -22,6 +22,25 @@ def main():
     if icon_path.exists():
         cmd.append(f"--icon={icon_path}")
 
+    # Hidden imports — these modules are imported lazily inside functions,
+    # so PyInstaller won't discover them via static analysis.
+    hidden = [
+        "estship_uploader.tabbed_gui",
+        "estship_uploader.pipeline",
+        "estship_uploader.itemclass_pipeline",
+        "estship_uploader.itemclass_csv_parser",
+        "estship_uploader.itemclass_validators",
+        "estship_uploader.itemclass_updater",
+        "estship_uploader.mfglt_pipeline",
+        "estship_uploader.mfglt_csv_parser",
+        "estship_uploader.mfglt_validators",
+        "estship_uploader.mfglt_updater",
+        "estship_uploader.backup",
+        "estship_uploader.connection",
+    ]
+    for mod in hidden:
+        cmd.append(f"--hidden-import={mod}")
+
     # Set paths so PyInstaller can find the package
     cmd.extend([
         f"--paths={project_root / 'src'}",
