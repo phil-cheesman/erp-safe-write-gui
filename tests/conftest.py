@@ -215,3 +215,194 @@ def sample_csv_duplicate_diff_dates(tmp_path):
         encoding="utf-8",
     )
     return str(csv_file)
+
+
+# ---------------------------------------------------------------------------
+# Item class CSV fixtures
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def sample_itemclass_csv(tmp_path):
+    """Valid 3-row item class CSV."""
+    csv_file = tmp_path / "valid_ic.csv"
+    csv_file.write_text(
+        "citemno,cbuyer\n"
+        "WIDGET-A100,A\n"
+        "GADGET-B200,MTO\n"
+        "PART-C300,D\n",
+        encoding="utf-8",
+    )
+    return str(csv_file)
+
+@pytest.fixture
+def sample_itemclass_csv_blank_buyer(tmp_path):
+    """Item class CSV with blank cbuyer (wipe)."""
+    csv_file = tmp_path / "blank_buyer.csv"
+    csv_file.write_text(
+        "citemno,cbuyer\n"
+        "WIDGET-A100,\n"
+        "GADGET-B200,A\n",
+        encoding="utf-8",
+    )
+    return str(csv_file)
+
+@pytest.fixture
+def sample_itemclass_csv_non_approved(tmp_path):
+    """Item class CSV with non-approved cbuyer value."""
+    csv_file = tmp_path / "non_approved.csv"
+    csv_file.write_text(
+        "citemno,cbuyer\n"
+        "WIDGET-A100,STOCK\n"
+        "GADGET-B200,JBK\n",
+        encoding="utf-8",
+    )
+    return str(csv_file)
+
+@pytest.fixture
+def sample_itemclass_csv_wrong_headers(tmp_path):
+    """Item class CSV with wrong headers."""
+    csv_file = tmp_path / "wrong_hdr.csv"
+    csv_file.write_text(
+        "item,class\n"
+        "WIDGET-A100,A\n",
+        encoding="utf-8",
+    )
+    return str(csv_file)
+
+@pytest.fixture
+def sample_itemclass_csv_dup_same(tmp_path):
+    """Item class CSV with duplicate citemno, same value."""
+    csv_file = tmp_path / "dup_same_ic.csv"
+    csv_file.write_text(
+        "citemno,cbuyer\n"
+        "WIDGET-A100,A\n"
+        "WIDGET-A100,A\n"
+        "GADGET-B200,B\n",
+        encoding="utf-8",
+    )
+    return str(csv_file)
+
+@pytest.fixture
+def sample_itemclass_csv_dup_diff(tmp_path):
+    """Item class CSV with duplicate citemno, conflicting values."""
+    csv_file = tmp_path / "dup_diff_ic.csv"
+    csv_file.write_text(
+        "citemno,cbuyer\n"
+        "WIDGET-A100,A\n"
+        "WIDGET-A100,B\n"
+        "GADGET-B200,D\n",
+        encoding="utf-8",
+    )
+    return str(csv_file)
+
+@pytest.fixture
+def sample_itemclass_csv_padded(tmp_path):
+    """Item class CSV with CHAR-padded whitespace (like DB export)."""
+    csv_file = tmp_path / "padded_ic.csv"
+    csv_file.write_text(
+        "citemno,cbuyer\n"
+        "WIDGET-A100            ,A         \n"
+        "GADGET-B200            ,MTO       \n",
+        encoding="utf-8",
+    )
+    return str(csv_file)
+
+@pytest.fixture
+def sample_itemclass_csv_missing_item(tmp_path):
+    """Item class CSV with missing citemno."""
+    csv_file = tmp_path / "missing_item.csv"
+    csv_file.write_text(
+        "citemno,cbuyer\n"
+        ",A\n"
+        "GADGET-B200,B\n",
+        encoding="utf-8",
+    )
+    return str(csv_file)
+
+# ---------------------------------------------------------------------------
+# Mfg lead time CSV fixtures
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def sample_mfglt_csv(tmp_path):
+    """Valid 3-row mfg lead time CSV."""
+    csv_file = tmp_path / "valid_lt.csv"
+    csv_file.write_text(
+        "citemno,nmfgltime\n"
+        "WIDGET-A100,14\n"
+        "GADGET-B200,30\n"
+        "PART-C300,7\n",
+        encoding="utf-8",
+    )
+    return str(csv_file)
+
+@pytest.fixture
+def sample_mfglt_csv_blank_lt(tmp_path):
+    """Mfg lead time CSV with blank (NULL) lead time."""
+    csv_file = tmp_path / "blank_lt.csv"
+    csv_file.write_text(
+        "citemno,nmfgltime\n"
+        "WIDGET-A100,\n"
+        "GADGET-B200,30\n",
+        encoding="utf-8",
+    )
+    return str(csv_file)
+
+@pytest.fixture
+def sample_mfglt_csv_bad_int(tmp_path):
+    """Mfg lead time CSV with non-integer value."""
+    csv_file = tmp_path / "bad_int.csv"
+    csv_file.write_text(
+        "citemno,nmfgltime\n"
+        "WIDGET-A100,abc\n"
+        "GADGET-B200,30\n",
+        encoding="utf-8",
+    )
+    return str(csv_file)
+
+@pytest.fixture
+def sample_mfglt_csv_negative(tmp_path):
+    """Mfg lead time CSV with negative value."""
+    csv_file = tmp_path / "neg_lt.csv"
+    csv_file.write_text(
+        "citemno,nmfgltime\n"
+        "WIDGET-A100,-5\n"
+        "GADGET-B200,30\n",
+        encoding="utf-8",
+    )
+    return str(csv_file)
+
+@pytest.fixture
+def sample_mfglt_csv_large(tmp_path):
+    """Mfg lead time CSV with very large value (>365)."""
+    csv_file = tmp_path / "large_lt.csv"
+    csv_file.write_text(
+        "citemno,nmfgltime\n"
+        "WIDGET-A100,500\n"
+        "GADGET-B200,30\n",
+        encoding="utf-8",
+    )
+    return str(csv_file)
+
+@pytest.fixture
+def sample_mfglt_csv_wrong_headers(tmp_path):
+    """Mfg lead time CSV with wrong headers."""
+    csv_file = tmp_path / "wrong_hdr_lt.csv"
+    csv_file.write_text(
+        "item,leadtime\n"
+        "WIDGET-A100,14\n",
+        encoding="utf-8",
+    )
+    return str(csv_file)
+
+@pytest.fixture
+def sample_mfglt_csv_dup_diff(tmp_path):
+    """Mfg lead time CSV with duplicate citemno, different values."""
+    csv_file = tmp_path / "dup_diff_lt.csv"
+    csv_file.write_text(
+        "citemno,nmfgltime\n"
+        "WIDGET-A100,14\n"
+        "WIDGET-A100,30\n",
+        encoding="utf-8",
+    )
+    return str(csv_file)

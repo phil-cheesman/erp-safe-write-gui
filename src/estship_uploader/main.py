@@ -74,8 +74,8 @@ def main() -> None:
 
     # No --file → launch GUI
     if not args.file:
-        from estship_uploader.gui import EstShipApp
-        app = EstShipApp(config)
+        from estship_uploader.tabbed_gui import TabbedApp
+        app = TabbedApp(config)
         app.mainloop()
         sys.exit(0)
 
