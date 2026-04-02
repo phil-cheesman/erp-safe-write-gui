@@ -448,10 +448,14 @@ class BaseUploadTab(ttk.Frame):
         """Write an example CSV to a temp file and open it in the default app."""
         filename, content = self._get_example_csv_content()
         try:
-            path = os.path.join(tempfile.gettempdir(), filename)
-            with open(path, "w", newline="", encoding="utf-8") as f:
-                f.write(content)
-            os.startfile(path)
+            stem, ext = os.path.splitext(filename)
+            fd = tempfile.NamedTemporaryFile(
+                mode="w", prefix=stem + "_", suffix=ext,
+                newline="", encoding="utf-8", delete=False,
+            )
+            with fd:
+                fd.write(content)
+            os.startfile(fd.name)
         except Exception as e:
             messagebox.showerror("Example CSV", f"Could not open example CSV:\n{e}")
 
