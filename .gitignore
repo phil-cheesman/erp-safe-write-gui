@@ -39,3 +39,6 @@ docs/local
 
 # Production data files
 sample_data/cbuyer_upload_*
+
+# Claude Code agents (local-only)
+.claude/agents/odbc-crawler.md

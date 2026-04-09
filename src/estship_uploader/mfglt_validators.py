@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 STAGING_TABLE = "dbo.MfgLTUpload_Staging"
 
 
+
 def create_staging_table(conn, database: str) -> StepResult:
     """Step 1: Drop and recreate staging table."""
     try:
@@ -66,7 +67,7 @@ def verify_import(conn, expected_count: int) -> StepResult:
 
 
 def check_items_exist(conn) -> StepResult:
-    """Step 4: Check all staging items exist in iciwhs WHERE cwarehouse='MAIN'.
+    """Step 4: Check all staging items exist in iciwhs in any warehouse.
 
     Missing items are removed from staging and reported as WARNING.
     """
@@ -78,7 +79,6 @@ def check_items_exist(conn) -> StepResult:
                 CASE WHEN EXISTS (
                     SELECT 1 FROM iciwhs t
                     WHERE t.citemno = s.Item_Number
-                      AND t.cwarehouse = 'MAIN'
                 ) THEN 1 ELSE 0 END AS found
             FROM {STAGING_TABLE} s
         """)
@@ -90,7 +90,8 @@ def check_items_exist(conn) -> StepResult:
 
         if not missing:
             return StepResult(
-                "PASS", f"Item check passed ({total}/{total} found in MAIN warehouse)")
+                "PASS",
+                f"Item check passed ({total}/{total} found in iciwhs)")
 
         # Remove missing items from staging
         cursor = conn.cursor()
@@ -99,7 +100,6 @@ def check_items_exist(conn) -> StepResult:
             WHERE NOT EXISTS (
                 SELECT 1 FROM iciwhs t
                 WHERE t.citemno = s.Item_Number
-                  AND t.cwarehouse = 'MAIN'
             )
         """)
         removed = cursor.rowcount
@@ -107,7 +107,7 @@ def check_items_exist(conn) -> StepResult:
 
         remaining = total - removed
         details = [
-            f"  {(r[0] or '').strip()} — not found in iciwhs/MAIN (removed from staging)"
+            f"  {(r[0] or '').strip()} — not found in iciwhs (removed from staging)"
             for r in missing
         ]
         details.append(f"  {remaining} rows remain in staging for upload")
@@ -122,39 +122,51 @@ def check_items_exist(conn) -> StepResult:
 
 
 def check_value_changes(conn) -> StepResult:
-    """Step 5: Show before/after lead time comparison (informational)."""
+    """Step 5: Show before/after lead time comparison across all in-scope warehouses.
+
+    Results are grouped by (item, current_value) so an item with the same lead
+    time across all its warehouses produces one line, while an item whose
+    warehouses have drifted apart produces one line per distinct current value
+    — surfacing the drift naturally.
+    """
     try:
         cursor = conn.cursor()
         cursor.execute(f"""
             SELECT
                 s.Item_Number,
                 t.nmfgltime AS current_value,
-                s.Mfg_Lead_Time AS new_value
+                s.Mfg_Lead_Time AS new_value,
+                COUNT(*) AS wh_count
             FROM {STAGING_TABLE} s
-            JOIN iciwhs t ON t.citemno = s.Item_Number AND t.cwarehouse = 'MAIN'
-            ORDER BY s.Item_Number
+            JOIN iciwhs t ON t.citemno = s.Item_Number
+            GROUP BY s.Item_Number, t.nmfgltime, s.Mfg_Lead_Time
+            ORDER BY s.Item_Number, t.nmfgltime
         """)
         rows = cursor.fetchall()
         cursor.close()
 
-        total = len(rows)
-        changed = 0
+        total_groups = len(rows)
+        changed_groups = 0
         details = []
         for r in rows:
             item = (r[0] or "").strip()
             current = r[1]
             new = r[2]
+            wh_count = r[3]
             current_str = str(current) if current is not None else "NULL"
             new_str = str(new) if new is not None else "NULL"
+            wh_label = f"{wh_count} wh"
             if current_str == new_str:
-                details.append(f"       {item}: {current_str} (no change)")
+                details.append(
+                    f"       {item} [{wh_label}]: {current_str} (no change)")
             else:
-                changed += 1
-                details.append(f"  [>>] {item}: {current_str} \u2192 {new_str}")
+                changed_groups += 1
+                details.append(
+                    f"  [>>] {item} [{wh_label}]: {current_str} \u2192 {new_str}")
 
         return StepResult(
             "PASS",
-            f"Lead time changes: {changed} of {total} rows will change",
+            f"Lead time changes: {changed_groups} of {total_groups} groups will change",
             details,
         )
     except Exception as e:
@@ -215,3 +227,50 @@ def get_summary(conn) -> StepResult:
         return StepResult("PASS", f"{count} rows ready for upload")
     except Exception as e:
         return StepResult("FAIL", f"Summary check error: {e}")
+
+
+def compute_update_scope(conn) -> tuple[StepResult, int, list[str]]:
+    """Step 8: Compute the (item x warehouse) fan-out for the staged items.
+
+    Returns a tuple of:
+        - StepResult summarizing the scope (PASS or FAIL)
+        - expected_rows (int) — total iciwhs rows that will be touched
+        - warehouses (list[str]) — sorted distinct in-scope warehouse codes
+
+    The expected_rows value is the contract that the in-transaction validator
+    uses to verify the UPDATE matched exactly the rows the validation phase
+    predicted.
+    """
+    try:
+        cursor = conn.cursor()
+        cursor.execute(f"""
+            SELECT COUNT(*) FROM iciwhs t
+            JOIN {STAGING_TABLE} s ON t.citemno = s.Item_Number
+        """)
+        expected_rows = cursor.fetchone()[0]
+
+        cursor.execute(f"""
+            SELECT DISTINCT t.cwarehouse FROM iciwhs t
+            JOIN {STAGING_TABLE} s ON t.citemno = s.Item_Number
+            ORDER BY t.cwarehouse
+        """)
+        warehouses = [(r[0] or "").strip() for r in cursor.fetchall()]
+        cursor.close()
+
+        wh_count = len(warehouses)
+        wh_list = ", ".join(warehouses) if warehouses else "(none)"
+        message = (
+            f"Will update {expected_rows} rows across "
+            f"{wh_count} warehouse{'s' if wh_count != 1 else ''}: {wh_list}"
+        )
+        details = [
+            f"Expected rows: {expected_rows}",
+            f"Warehouses: {wh_list}",
+        ]
+        return StepResult("PASS", message, details), expected_rows, warehouses
+    except Exception as e:
+        return (
+            StepResult("FAIL", f"Update scope query error: {e}"),
+            0,
+            [],
+        )

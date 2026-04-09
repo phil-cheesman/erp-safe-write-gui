@@ -18,15 +18,16 @@ Standalone Tkinter GUI app that automates daily estimated ship date uploads to S
 
 ## Key Architecture
 
-- **Pipeline pattern**: `pipeline.py` orchestrates steps from `validators.py` and `updater.py`
+- **Pipeline pattern**: each tab has its own `*_pipeline.py` → `*_validators.py` → `*_updater.py`
 - **State machine**: IDLE → CSV_LOADED → VALIDATED → COMPLETE
 - **Transaction safety**: UPDATE runs in explicit transaction, rolls back on any mismatch
-- **Staging table**: Temp `dbo.EstShipUpload_Staging` created/dropped each run
+- **Staging tables**: Temp staging tables created/dropped each run (e.g. `dbo.EstShipUpload_Staging`, `dbo.MfgLTUpload_Staging`)
 
-## DB Target
+## DB Targets
 
-- Target table: configurable (default: `sostrs`)
-- Fields: `csono` (CHAR10), `clineitem` (CHAR10), `citemno` (CHAR20), `idestship` (DATE)
+- **Est Ship Date**: `sostrs` — `csono` (CHAR10), `clineitem` (CHAR10), `citemno` (CHAR20), `idestship` (DATE)
+- **Item Class**: `iclmas` — `citemno` (CHAR20), `cbuyer` (CHAR10)
+- **Mfg Lead Time**: `iciwhs` — `citemno` (CHAR20), `cwarehouse` (CHAR10), `nmfgltime` (INT). Updates fan out to ALL warehouses per part number. Full-table backup before each upload.
 - Connection via ODBC DSN (configured in `config/config.ini`)
 
 ## Commands

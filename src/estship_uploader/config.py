@@ -2,8 +2,21 @@
 
 import configparser
 import os
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+
+
+def _app_dir() -> Path:
+    """Return the directory the application lives in.
+
+    For a PyInstaller --onefile bundle this is the folder containing the exe
+    (not the temp extraction dir). For normal Python execution it's the CWD,
+    which matches the existing batch-file workflow.
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).parent
+    return Path.cwd()
 
 
 @dataclass
@@ -53,8 +66,10 @@ def load_config(config_path: str | None = None) -> AppConfig:
     resolved_path = ""
     if config_path and Path(config_path).exists():
         resolved_path = config_path
-    elif Path("config/config.ini").exists():
-        resolved_path = "config/config.ini"
+    else:
+        default_ini = _app_dir() / "config" / "config.ini"
+        if default_ini.exists():
+            resolved_path = str(default_ini)
 
     if resolved_path:
         ini.read(resolved_path)
@@ -110,7 +125,7 @@ def load_config(config_path: str | None = None) -> AppConfig:
 
 def save_credentials(config: AppConfig) -> None:
     """Persist username and password to the INI file that was loaded."""
-    path = config.config_path or "config/config.ini"
+    path = config.config_path or str(_app_dir() / "config" / "config.ini")
     ini = configparser.ConfigParser()
     ini.optionxform = str
 

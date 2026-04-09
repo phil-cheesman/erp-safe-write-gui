@@ -217,3 +217,64 @@ Three validation safeguards, NULL date support for clearing existing dates, and 
 - [ ] GUI tests (would need `tkinter` mocking — low priority)
 - [ ] Progress indicator for long-running operations (useful for 500+ row CSVs)
 - [ ] Error message polish for non-technical users
+
+---
+
+## Session 5: Mfg Lead Time — Multi-Warehouse Update
+
+### What Was Built
+
+Extended the Mfg Lead Time uploader to update `nmfgltime` across **all warehouses** in `iciwhs` that hold each part number, instead of only the MAIN warehouse. Added a pre-flight scope computation step, tightened the in-transaction row-count verification, and updated the value-change display to surface warehouse-to-warehouse drift.
+
+### Live Data Context (verified via ODBC MCP against `sqlvam`)
+
+- `iciwhs` has 8 distinct warehouses: 2377, CA, HOLD, HUDSON, INTRANSIT, MAIN, NC, TX
+- Most items live in 2 warehouses (MAIN + HUDSON); some span up to 8
+- 124 items exist in non-MAIN warehouses but have no MAIN row — previously rejected, now accepted
+- Some items have drifted lead times across warehouses (e.g., MAIN=10, HUDSON/CA/NC/TX=0)
+
+### Files Modified
+
+| File | Change |
+|------|--------|
+| `models.py` | Added `expected_rows: int = 0` field to `PipelineResult` |
+| `mfglt_validators.py` | `check_items_exist` no longer filters by warehouse (any warehouse passes). `check_value_changes` groups by `(item, current_value)` with warehouse count — drift surfaces as separate groups. New `compute_update_scope()` returns `(StepResult, expected_rows, warehouses)` |
+| `mfglt_updater.py` | `execute_update` returns `(StepResult, rows_affected)` — no warehouse filter on the UPDATE. `validate_in_transaction` takes both `expected_rows` and `actual_rows`, verifies exact match, plus a re-counted scope_count for defense in depth. `post_commit_verify` covers all warehouses |
+| `mfglt_pipeline.py` | `run_validation` calls `compute_update_scope` after item-exist check, stashes `expected_rows` on result. `run_upload` threads `expected_rows` + `actual_rows` into the validator |
+| `tabbed_gui.py` | `MfgLTTab` caches `_expected_rows` from validation, passes it to `run_upload`. Updated confirmation prompt and "How It Works" modal to describe all-warehouse behavior |
+
+### New Test File
+
+| File | Tests | Coverage |
+|------|-------|----------|
+| `test_mfglt_updater.py` | 10 | `execute_update` tuple return + no warehouse filter, `validate_in_transaction` pass/actual-vs-expected mismatch/mismatch count/scope drift/lost transaction/no warehouse filter, `post_commit_verify` no warehouse filter |
+
+### Modified Tests
+
+| File | Changes |
+|------|---------|
+| `test_mfglt_validators.py` | Updated `check_items_exist` assertions (no MAIN filter). Added `test_item_in_non_main_warehouse_passes`, `TestComputeUpdateScope` (4 cases), `test_warehouse_drift_shown_as_separate_groups` |
+| `test_mfglt_pipeline.py` | Updated mock shapes for 4-element `check_value_changes` rows and warehouse list for `compute_update_scope`. Added `test_rollback_when_actual_rows_differs_from_expected` |
+
+### Verification Results
+
+- `pytest` — **122/122 passed** (44 mfglt + backup, 78 unrelated)
+- Read-only ODBC sanity check against `sqlvam`: new SQL compiles, sample CTE with multi-warehouse parts returned correct fan-out (3 items × varying warehouse counts = 8 expected rows), item with no MAIN row accepted
+
+---
+
+## Session 5b: Config Path Fix for .exe Distribution
+
+### What Was Fixed
+
+`config.py` used relative paths (`config/config.ini`) which resolve against the CWD. The batch file masks this by doing `cd /d "%~dp0"`, but double-clicking the exe directly uses the exe's directory as CWD, which doesn't contain `config/`. Settings saved to the wrong location and were lost on restart.
+
+### Files Modified
+
+| File | Change |
+|------|--------|
+| `config.py` | Added `_app_dir()` helper: returns `Path(sys.executable).parent` when frozen (PyInstaller), `Path.cwd()` otherwise. Both `load_config` and `save_credentials` resolve config paths relative to `_app_dir()` |
+
+### Distribution Impact
+
+The exe now requires `config/config.ini` next to it (`dist/config/config.ini`). "Save settings" writes to that location regardless of how the exe is launched.

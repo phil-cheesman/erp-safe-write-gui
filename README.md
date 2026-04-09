@@ -4,13 +4,23 @@ A standalone Windows GUI app that automates daily estimated ship date uploads to
 
 ## What It Does
 
-1. Load a CSV with sales order line items and estimated ship dates
+A tabbed interface with three uploaders:
+
+**Est Ship Date** — Update estimated ship dates on sales order lines (`sostrs`)
+1. Load a CSV with SO number, line item, item number, and new ship date
 2. Validate every row against the live database (SO exists, line item exists, item number matches)
-3. Show a before/after comparison of date changes
-4. Upload in a single transaction with automatic rollback on any mismatch
+3. Upload in a single transaction with automatic rollback on any mismatch
 
-## CSV Format
+**Item Class** — Update buyer code (`cbuyer`) on items in `iclmas`
 
+**Mfg Lead Time** — Update manufacturing lead time (`nmfgltime`) across all warehouses in `iciwhs`
+1. Load a CSV with part numbers and new lead times
+2. The app fans out each item to every warehouse that holds it — a single CSV row updates MAIN, HUDSON, NC, etc.
+3. A full backup of `iciwhs` is created before each upload; in-transaction validation verifies the exact row count
+
+## CSV Formats
+
+**Est Ship Date:**
 ```
 SO_Number,Line_Item,Item_Number,Est_Ship_Date
    1000001,0000000001,WIDGET-A100,4/20/2026
@@ -20,6 +30,21 @@ SO_Number,Line_Item,Item_Number,Est_Ship_Date
 ```
 
 Supported date formats: `M/D/YYYY`, `YYYY-MM-DD`, Excel serial numbers, or `NULL` to clear.
+
+**Mfg Lead Time:**
+```
+citemno,nmfgltime
+WIDGET-A100,14
+GADGET-B200,30
+PART-C300,0
+```
+
+**Item Class:**
+```
+citemno,cbuyer
+WIDGET-A100,A
+GADGET-B200,MTO
+```
 
 ## Setup
 

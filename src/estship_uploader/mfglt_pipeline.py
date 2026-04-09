@@ -69,6 +69,23 @@ def run_validation(conn, rows: list[tuple], database: str, on_step=None) -> Pipe
                 "FAIL", "No rows remaining in staging after validation"), on_step)
             return result
 
+        # Step 8: Compute the (item x warehouse) fan-out scope.
+        # The expected_rows value is the contract that the in-transaction
+        # validator uses to detect any drift between the row count predicted
+        # here and what the UPDATE actually touches.
+        scope_step, expected_rows, _warehouses = validators.compute_update_scope(conn)
+        _emit(result, scope_step, on_step)
+        if scope_step.status == "FAIL":
+            return result
+        result.expected_rows = expected_rows
+
+        if result.expected_rows == 0:
+            _emit(result, StepResult(
+                "FAIL",
+                "No iciwhs rows would be updated for the staged items"),
+                on_step)
+            return result
+
         result.success = True
 
     except Exception as e:
@@ -84,8 +101,14 @@ def run_validation(conn, rows: list[tuple], database: str, on_step=None) -> Pipe
     return result
 
 
-def run_upload(conn, expected_count: int, database: str = "", on_step=None) -> PipelineResult:
-    """Run upload steps for mfg lead time. ROLLBACK on error, cleanup in finally."""
+def run_upload(conn, expected_rows: int, database: str = "", on_step=None) -> PipelineResult:
+    """Run upload steps for mfg lead time. ROLLBACK on error, cleanup in finally.
+
+    `expected_rows` is the (item x warehouse) fan-out computed during the
+    validation phase by `mfglt_validators.compute_update_scope`. The
+    in-transaction validator compares the UPDATE's actual rowcount against
+    this value and rolls back on any mismatch.
+    """
     result = PipelineResult()
 
     try:
@@ -99,13 +122,13 @@ def run_upload(conn, expected_count: int, database: str = "", on_step=None) -> P
             return result
 
         # Execute UPDATE in transaction
-        step = updater.execute_update(conn)
+        step, actual_rows = updater.execute_update(conn)
         _emit(result, step, on_step)
         if step.status == "FAIL":
             return result
 
-        # In-transaction validation
-        step = updater.validate_in_transaction(conn, expected_count)
+        # In-transaction validation — compare actual vs expected row count
+        step = updater.validate_in_transaction(conn, expected_rows, actual_rows)
         _emit(result, step, on_step)
         validation_passed = step.status != "FAIL"
 

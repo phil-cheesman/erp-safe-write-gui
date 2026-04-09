@@ -17,8 +17,13 @@ def backup_table(conn) -> StepResult:
     return create_backup(conn, "iciwhs")
 
 
-def execute_update(conn) -> StepResult:
-    """Begin transaction and execute bulk UPDATE on iciwhs for MAIN warehouse."""
+def execute_update(conn) -> tuple[StepResult, int]:
+    """Begin transaction and execute bulk UPDATE on iciwhs across all warehouses.
+
+    Every warehouse row that matches a staged item gets the new lead time.
+    Returns (StepResult, rows_affected) so the caller can verify the row count
+    against the value computed during validation.
+    """
     try:
         conn.autocommit = False
         cursor = conn.cursor()
@@ -29,11 +34,13 @@ def execute_update(conn) -> StepResult:
             FROM iciwhs t
             JOIN {STAGING_TABLE} s
                 ON t.citemno = s.Item_Number
-            WHERE t.cwarehouse = 'MAIN'
         """)
         rows_affected = cursor.rowcount
         cursor.close()
-        return StepResult("PASS", f"UPDATE executed ({rows_affected} rows affected)")
+        return (
+            StepResult("PASS", f"UPDATE executed ({rows_affected} rows affected)"),
+            rows_affected,
+        )
     except Exception as e:
         try:
             conn.execute("ROLLBACK")
@@ -43,32 +50,41 @@ def execute_update(conn) -> StepResult:
             conn.autocommit = True
         except Exception:
             pass
-        return StepResult("FAIL", f"UPDATE failed: {e}")
+        return StepResult("FAIL", f"UPDATE failed: {e}"), 0
 
 
-def validate_in_transaction(conn, expected_count: int) -> StepResult:
-    """In-transaction validation — mismatch count + update count + @@TRANCOUNT."""
+def validate_in_transaction(
+    conn, expected_rows: int, actual_rows: int
+) -> StepResult:
+    """In-transaction validation — mismatch count + actual-vs-expected + @@TRANCOUNT.
+
+    `expected_rows` is the (item x warehouse) fan-out computed during
+    validation by `mfglt_validators.compute_update_scope`. `actual_rows` is
+    the cursor.rowcount returned by the UPDATE. The two MUST match exactly,
+    or we roll back — anything else means the world changed under us
+    (concurrent insert/delete, etc.).
+    """
     try:
         cursor = conn.cursor()
 
         # Count mismatches (should be 0 after UPDATE)
         cursor.execute(f"""
             SELECT COUNT(*) FROM {STAGING_TABLE} s
-            JOIN iciwhs t ON t.citemno = s.Item_Number AND t.cwarehouse = 'MAIN'
+            JOIN iciwhs t ON t.citemno = s.Item_Number
             WHERE ISNULL(s.Mfg_Lead_Time, -1) != ISNULL(t.nmfgltime, -1)
         """)
         mismatches = cursor.fetchone()[0]
 
-        # Count updated rows
+        # Re-count touched rows (defense in depth — should equal actual_rows
+        # AND expected_rows; any drift signals a concurrent change)
         cursor.execute(f"""
             SELECT COUNT(*) FROM iciwhs t
-            WHERE t.cwarehouse = 'MAIN'
-              AND EXISTS (
+            WHERE EXISTS (
                 SELECT 1 FROM {STAGING_TABLE} s
                 WHERE s.Item_Number = t.citemno
             )
         """)
-        updated_count = cursor.fetchone()[0]
+        scope_count = cursor.fetchone()[0]
 
         # Check transaction is still open
         cursor.execute("SELECT @@TRANCOUNT")
@@ -78,7 +94,8 @@ def validate_in_transaction(conn, expected_count: int) -> StepResult:
 
         details = [
             f"Mismatches: {mismatches}",
-            f"Updated rows: {updated_count} (expected {expected_count})",
+            f"Rows updated: {actual_rows} (expected {expected_rows})",
+            f"In-scope rows now: {scope_count}",
             f"@@TRANCOUNT: {trancount}",
         ]
 
@@ -89,11 +106,19 @@ def validate_in_transaction(conn, expected_count: int) -> StepResult:
                 details,
             )
 
-        if updated_count != expected_count:
+        if actual_rows != expected_rows:
             return StepResult(
                 "FAIL",
-                f"In-transaction validation failed: count mismatch "
-                f"({updated_count} vs {expected_count})",
+                f"In-transaction validation failed: row count mismatch "
+                f"(updated {actual_rows}, expected {expected_rows})",
+                details,
+            )
+
+        if scope_count != expected_rows:
+            return StepResult(
+                "FAIL",
+                f"In-transaction validation failed: in-scope row count drifted "
+                f"({scope_count} vs {expected_rows})",
                 details,
             )
 
@@ -132,7 +157,7 @@ def commit_or_rollback(conn, validation_passed: bool) -> StepResult:
 
 
 def post_commit_verify(conn) -> StepResult:
-    """Post-commit verification — count + value range."""
+    """Post-commit verification — count + value range across all warehouses."""
     try:
         cursor = conn.cursor()
         cursor.execute(f"""
@@ -141,8 +166,7 @@ def post_commit_verify(conn) -> StepResult:
                 MIN(t.nmfgltime) AS min_lt,
                 MAX(t.nmfgltime) AS max_lt
             FROM iciwhs t
-            WHERE t.cwarehouse = 'MAIN'
-              AND EXISTS (
+            WHERE EXISTS (
                 SELECT 1 FROM {STAGING_TABLE} s
                 WHERE s.Item_Number = t.citemno
             )

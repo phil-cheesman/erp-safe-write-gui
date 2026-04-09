@@ -798,6 +798,13 @@ class ItemClassTab(BaseUploadTab):
 class MfgLTTab(BaseUploadTab):
     """Tab for uploading manufacturing lead time (nmfgltime) to iciwhs."""
 
+    def __init__(self, parent, app):
+        super().__init__(parent, app)
+        # The (item x warehouse) fan-out computed during validation. The
+        # upload phase passes this into the pipeline so the in-transaction
+        # validator can verify cursor.rowcount matches exactly.
+        self._expected_rows = 0
+
     def _get_example_csv_content(self):
         return ("example_mfglt.csv",
                 "citemno,nmfgltime\n"
@@ -822,25 +829,32 @@ class MfgLTTab(BaseUploadTab):
         def step_callback(step):
             self.after(0, lambda s=step: self._append_step(s))
         from estship_uploader.mfglt_pipeline import run_validation
-        return run_validation(conn, self.rows, self.app.config.database,
-                              on_step=step_callback)
+        result = run_validation(conn, self.rows, self.app.config.database,
+                                on_step=step_callback)
+        self._expected_rows = result.expected_rows
+        return result
 
     def _run_upload(self, conn, upload_count):
+        # upload_count from the base class is the staging item count and is
+        # only used for the confirm dialog. The pipeline needs the (item x
+        # warehouse) row count, which we cached in _run_validation.
         def step_callback(step):
             self.after(0, lambda s=step: self._append_step(s))
         from estship_uploader.mfglt_pipeline import run_upload
-        return run_upload(conn, upload_count,
+        return run_upload(conn, self._expected_rows,
                           database=self.app.config.database,
                           on_step=step_callback)
 
     def _get_upload_confirm_msg(self, count):
         return (
             f"This will permanently overwrite the Manufacturing Lead Time "
-            f"(nmfgltime) for {count} items in the iciwhs table "
-            f"(MAIN warehouse only).\n\n"
-            f"A backup of iciwhs will be created before the update.\n\n"
-            f"Any existing lead time values on these items "
-            f"will be replaced with the values from your CSV.\n\n"
+            f"(nmfgltime) for {count} items across ALL warehouses "
+            f"in the iciwhs table.\n\n"
+            f"Total iciwhs rows that will be updated: {self._expected_rows}\n\n"
+            f"A full backup of iciwhs will be created before the update "
+            f"(a manual restore can recover any row if needed).\n\n"
+            f"Any existing lead time values on these items will be replaced "
+            f"with the values from your CSV.\n\n"
             f"This cannot be undone. Continue?"
         )
 
@@ -868,12 +882,14 @@ class MfgLTTab(BaseUploadTab):
         h("Manufacturing Lead Time Uploader")
         b("")
         b("This tab bulk-updates the Manufacturing Lead Time (nmfgltime)")
-        b("on items in the warehouse table (iciwhs) for the MAIN warehouse")
-        b("using data from a CSV file.")
+        b("on items in the warehouse table (iciwhs) across ALL warehouses")
+        b("that hold each part number, using data from a CSV file.")
         b("")
         b("CSV format: citemno, nmfgltime (integer days)")
         b("")
-        b("A backup of iciwhs is created before each upload (max 3 kept).")
+        b("A full backup of iciwhs (every warehouse, every column) is created")
+        b("before each upload (max 3 kept). A manual restore can use this to")
+        b("recover any row.")
 
         h("\nPipeline Steps")
         sh("Phase A: Setup & Import")
@@ -881,10 +897,13 @@ class MfgLTTab(BaseUploadTab):
         b("Step 2 — Import CSV rows")
         b("Step 3 — Verify row count")
         sh("Phase B: Validation")
-        b("Step 4 — Check every item exists in iciwhs WHERE cwarehouse='MAIN'")
-        b("Step 5 — Show before/after lead time comparison")
+        b("Step 4 — Check every item exists in iciwhs (any in-scope warehouse)")
+        b("Step 5 — Show before/after lead time comparison (per item, per")
+        b("         distinct current value, with warehouse count)")
         b("Step 6 — Anomaly check (zero values, >365 days, NULLs)")
-        b("Step 7 — Final count")
+        b("Step 7 — Final staging row count")
+        b("Step 8 — Compute (item x warehouse) update scope:")
+        b("         distinct warehouses + total rows that will be touched")
         sh("Phase C: Upload (Transaction)")
         b("Backup — Create backup of iciwhs table")
         b("Execute UPDATE inside a transaction:")
@@ -892,8 +911,10 @@ class MfgLTTab(BaseUploadTab):
         sql("    FROM iciwhs t")
         sql("    JOIN dbo.MfgLTUpload_Staging s")
         sql("        ON t.citemno = s.Item_Number")
-        sql("    WHERE t.cwarehouse = 'MAIN'")
-        b("In-transaction validation, COMMIT/ROLLBACK, post-commit verify")
+        sql("    -- (all warehouses, no exclusions)")
+        b("In-transaction validation: actual rowcount must equal the expected")
+        b("count from Step 8, otherwise ROLLBACK. Then COMMIT, post-commit")
+        b("verify, and drop staging.")
         sh("Phase D: Cleanup")
         b("Drop staging table")
 
