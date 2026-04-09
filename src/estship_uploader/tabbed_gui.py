@@ -110,10 +110,14 @@ class TabbedApp(tk.Tk):
         self._estship_tab = EstShipTab(self._notebook, self)
         self._itemclass_tab = ItemClassTab(self._notebook, self)
         self._mfglt_tab = MfgLTTab(self._notebook, self)
+        self._reordpt_tab = ReordPtTab(self._notebook, self)
+        self._reordqty_tab = ReordQtyTab(self._notebook, self)
 
         self._notebook.add(self._estship_tab, text="EstShip Dates")
         self._notebook.add(self._itemclass_tab, text="Item Class")
         self._notebook.add(self._mfglt_tab, text="Mfg Lead Time")
+        self._notebook.add(self._reordpt_tab, text="Reorder Point")
+        self._notebook.add(self._reordqty_tab, text="Reorder Qty")
 
     # ------------------------------------------------------------------
     # Connection dot helper
@@ -888,7 +892,7 @@ class MfgLTTab(BaseUploadTab):
         b("CSV format: citemno, nmfgltime (integer days)")
         b("")
         b("A full backup of iciwhs (every warehouse, every column) is created")
-        b("before each upload (max 3 kept). A manual restore can use this to")
+        b("before each upload (max 5 kept). A manual restore can use this to")
         b("recover any row.")
 
         h("\nPipeline Steps")
@@ -910,6 +914,256 @@ class MfgLTTab(BaseUploadTab):
         sql("    UPDATE t SET t.nmfgltime = s.Mfg_Lead_Time")
         sql("    FROM iciwhs t")
         sql("    JOIN dbo.MfgLTUpload_Staging s")
+        sql("        ON t.citemno = s.Item_Number")
+        sql("    -- (all warehouses, no exclusions)")
+        b("In-transaction validation: actual rowcount must equal the expected")
+        b("count from Step 8, otherwise ROLLBACK. Then COMMIT, post-commit")
+        b("verify, and drop staging.")
+        sh("Phase D: Cleanup")
+        b("Drop staging table")
+
+        text.config(state=tk.DISABLED)
+
+
+# ======================================================================
+# Reorder Point tab
+# ======================================================================
+
+
+class ReordPtTab(BaseUploadTab):
+    """Tab for uploading reorder point (nreordpt) to iciwhs."""
+
+    def __init__(self, parent, app):
+        super().__init__(parent, app)
+        self._expected_rows = 0
+
+    def _get_example_csv_content(self):
+        return ("example_reordpt.csv",
+                "citemno,nreordpt\n"
+                "WIDGET-A100,50\n"
+                "GADGET-B200,100\n"
+                "PART-C300,0\n")
+
+    def _parse_csv(self, path):
+        from estship_uploader.reordpt_csv_parser import parse_reordpt_csv
+        return parse_reordpt_csv(path)
+
+    def _show_row_preview(self, rows):
+        self._append_result("--- CSV Preview ---", "INFO")
+        self._append_result(f"{'citemno':<22} {'nreordpt'}", "INFO")
+        self._append_result("-" * 35, "INFO")
+        for item, val in rows:
+            val_display = str(val) if val is not None else "NULL"
+            self._append_result(f"{item:<22} {val_display}", "INFO")
+        self._append_result(f"\n{len(rows)} rows total\n", "INFO")
+
+    def _run_validation(self, conn):
+        def step_callback(step):
+            self.after(0, lambda s=step: self._append_step(s))
+        from estship_uploader.reordpt_pipeline import run_validation
+        result = run_validation(conn, self.rows, self.app.config.database,
+                                on_step=step_callback)
+        self._expected_rows = result.expected_rows
+        return result
+
+    def _run_upload(self, conn, upload_count):
+        def step_callback(step):
+            self.after(0, lambda s=step: self._append_step(s))
+        from estship_uploader.reordpt_pipeline import run_upload
+        return run_upload(conn, self._expected_rows,
+                          database=self.app.config.database,
+                          on_step=step_callback)
+
+    def _get_upload_confirm_msg(self, count):
+        return (
+            f"This will permanently overwrite the Reorder Point "
+            f"(nreordpt) for {count} items across ALL warehouses "
+            f"in the iciwhs table.\n\n"
+            f"Total iciwhs rows that will be updated: {self._expected_rows}\n\n"
+            f"A full backup of iciwhs will be created before the update "
+            f"(a manual restore can recover any row if needed).\n\n"
+            f"Any existing reorder point values on these items will be replaced "
+            f"with the values from your CSV.\n\n"
+            f"This cannot be undone. Continue?"
+        )
+
+    def _on_how_it_works(self):
+        win = tk.Toplevel(self.app)
+        win.title("How It Works — Reorder Point Uploader")
+        win.geometry("720x620")
+        win.minsize(500, 400)
+
+        text = scrolledtext.ScrolledText(win, wrap=tk.WORD,
+                                         font=("Consolas", 10))
+        text.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
+
+        text.tag_configure("heading", font=("Segoe UI", 12, "bold"))
+        text.tag_configure("subheading", font=("Segoe UI", 10, "bold"))
+        text.tag_configure("sql", font=("Consolas", 9), foreground="#336699",
+                           lmargin1=20, lmargin2=20)
+        text.tag_configure("body", font=("Segoe UI", 10))
+
+        def h(t): text.insert(tk.END, t + "\n", "heading")
+        def sh(t): text.insert(tk.END, "\n" + t + "\n", "subheading")
+        def b(t): text.insert(tk.END, t + "\n", "body")
+        def sql(t): text.insert(tk.END, t + "\n", "sql")
+
+        h("Reorder Point Uploader")
+        b("")
+        b("This tab bulk-updates the Reorder Point (nreordpt)")
+        b("on items in the warehouse table (iciwhs) across ALL warehouses")
+        b("that hold each part number, using data from a CSV file.")
+        b("")
+        b("CSV format: citemno, nreordpt (whole number)")
+        b("")
+        b("A full backup of iciwhs (every warehouse, every column) is created")
+        b("before each upload (max 5 kept). A manual restore can use this to")
+        b("recover any row.")
+
+        h("\nPipeline Steps")
+        sh("Phase A: Setup & Import")
+        b("Step 1 — Create staging table (ReordPtUpload_Staging)")
+        b("Step 2 — Import CSV rows")
+        b("Step 3 — Verify row count")
+        sh("Phase B: Validation")
+        b("Step 4 — Check every item exists in iciwhs (any in-scope warehouse)")
+        b("Step 5 — Show before/after reorder point comparison (per item, per")
+        b("         distinct current value, with warehouse count)")
+        b("Step 6 — Anomaly check (zero values, >1,000, NULLs)")
+        b("Step 7 — Final staging row count")
+        b("Step 8 — Compute (item x warehouse) update scope:")
+        b("         distinct warehouses + total rows that will be touched")
+        sh("Phase C: Upload (Transaction)")
+        b("Backup — Create backup of iciwhs table")
+        b("Execute UPDATE inside a transaction:")
+        sql("    UPDATE t SET t.nreordpt = s.Reorder_Point")
+        sql("    FROM iciwhs t")
+        sql("    JOIN dbo.ReordPtUpload_Staging s")
+        sql("        ON t.citemno = s.Item_Number")
+        sql("    -- (all warehouses, no exclusions)")
+        b("In-transaction validation: actual rowcount must equal the expected")
+        b("count from Step 8, otherwise ROLLBACK. Then COMMIT, post-commit")
+        b("verify, and drop staging.")
+        sh("Phase D: Cleanup")
+        b("Drop staging table")
+
+        text.config(state=tk.DISABLED)
+
+
+# ======================================================================
+# Reorder Qty tab
+# ======================================================================
+
+
+class ReordQtyTab(BaseUploadTab):
+    """Tab for uploading reorder quantity (nreordqty) to iciwhs."""
+
+    def __init__(self, parent, app):
+        super().__init__(parent, app)
+        self._expected_rows = 0
+
+    def _get_example_csv_content(self):
+        return ("example_reordqty.csv",
+                "citemno,nreordqty\n"
+                "WIDGET-A100,200\n"
+                "GADGET-B200,500\n"
+                "PART-C300,0\n")
+
+    def _parse_csv(self, path):
+        from estship_uploader.reordqty_csv_parser import parse_reordqty_csv
+        return parse_reordqty_csv(path)
+
+    def _show_row_preview(self, rows):
+        self._append_result("--- CSV Preview ---", "INFO")
+        self._append_result(f"{'citemno':<22} {'nreordqty'}", "INFO")
+        self._append_result("-" * 35, "INFO")
+        for item, val in rows:
+            val_display = str(val) if val is not None else "NULL"
+            self._append_result(f"{item:<22} {val_display}", "INFO")
+        self._append_result(f"\n{len(rows)} rows total\n", "INFO")
+
+    def _run_validation(self, conn):
+        def step_callback(step):
+            self.after(0, lambda s=step: self._append_step(s))
+        from estship_uploader.reordqty_pipeline import run_validation
+        result = run_validation(conn, self.rows, self.app.config.database,
+                                on_step=step_callback)
+        self._expected_rows = result.expected_rows
+        return result
+
+    def _run_upload(self, conn, upload_count):
+        def step_callback(step):
+            self.after(0, lambda s=step: self._append_step(s))
+        from estship_uploader.reordqty_pipeline import run_upload
+        return run_upload(conn, self._expected_rows,
+                          database=self.app.config.database,
+                          on_step=step_callback)
+
+    def _get_upload_confirm_msg(self, count):
+        return (
+            f"This will permanently overwrite the Reorder Quantity "
+            f"(nreordqty) for {count} items across ALL warehouses "
+            f"in the iciwhs table.\n\n"
+            f"Total iciwhs rows that will be updated: {self._expected_rows}\n\n"
+            f"A full backup of iciwhs will be created before the update "
+            f"(a manual restore can recover any row if needed).\n\n"
+            f"Any existing reorder quantity values on these items will be "
+            f"replaced with the values from your CSV.\n\n"
+            f"This cannot be undone. Continue?"
+        )
+
+    def _on_how_it_works(self):
+        win = tk.Toplevel(self.app)
+        win.title("How It Works — Reorder Qty Uploader")
+        win.geometry("720x620")
+        win.minsize(500, 400)
+
+        text = scrolledtext.ScrolledText(win, wrap=tk.WORD,
+                                         font=("Consolas", 10))
+        text.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
+
+        text.tag_configure("heading", font=("Segoe UI", 12, "bold"))
+        text.tag_configure("subheading", font=("Segoe UI", 10, "bold"))
+        text.tag_configure("sql", font=("Consolas", 9), foreground="#336699",
+                           lmargin1=20, lmargin2=20)
+        text.tag_configure("body", font=("Segoe UI", 10))
+
+        def h(t): text.insert(tk.END, t + "\n", "heading")
+        def sh(t): text.insert(tk.END, "\n" + t + "\n", "subheading")
+        def b(t): text.insert(tk.END, t + "\n", "body")
+        def sql(t): text.insert(tk.END, t + "\n", "sql")
+
+        h("Reorder Quantity Uploader")
+        b("")
+        b("This tab bulk-updates the Reorder Quantity (nreordqty)")
+        b("on items in the warehouse table (iciwhs) across ALL warehouses")
+        b("that hold each part number, using data from a CSV file.")
+        b("")
+        b("CSV format: citemno, nreordqty (whole number)")
+        b("")
+        b("A full backup of iciwhs (every warehouse, every column) is created")
+        b("before each upload (max 5 kept). A manual restore can use this to")
+        b("recover any row.")
+
+        h("\nPipeline Steps")
+        sh("Phase A: Setup & Import")
+        b("Step 1 — Create staging table (ReordQtyUpload_Staging)")
+        b("Step 2 — Import CSV rows")
+        b("Step 3 — Verify row count")
+        sh("Phase B: Validation")
+        b("Step 4 — Check every item exists in iciwhs (any in-scope warehouse)")
+        b("Step 5 — Show before/after reorder qty comparison (per item, per")
+        b("         distinct current value, with warehouse count)")
+        b("Step 6 — Anomaly check (zero values, >1,000, NULLs)")
+        b("Step 7 — Final staging row count")
+        b("Step 8 — Compute (item x warehouse) update scope:")
+        b("         distinct warehouses + total rows that will be touched")
+        sh("Phase C: Upload (Transaction)")
+        b("Backup — Create backup of iciwhs table")
+        b("Execute UPDATE inside a transaction:")
+        sql("    UPDATE t SET t.nreordqty = s.Reorder_Qty")
+        sql("    FROM iciwhs t")
+        sql("    JOIN dbo.ReordQtyUpload_Staging s")
         sql("        ON t.citemno = s.Item_Number")
         sql("    -- (all warehouses, no exclusions)")
         b("In-transaction validation: actual rowcount must equal the expected")

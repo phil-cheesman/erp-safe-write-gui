@@ -21,13 +21,15 @@ Standalone Tkinter GUI app that automates daily estimated ship date uploads to S
 - **Pipeline pattern**: each tab has its own `*_pipeline.py` → `*_validators.py` → `*_updater.py`
 - **State machine**: IDLE → CSV_LOADED → VALIDATED → COMPLETE
 - **Transaction safety**: UPDATE runs in explicit transaction, rolls back on any mismatch
-- **Staging tables**: Temp staging tables created/dropped each run (e.g. `dbo.EstShipUpload_Staging`, `dbo.MfgLTUpload_Staging`)
+- **Staging tables**: Temp staging tables created/dropped each run (e.g. `dbo.EstShipUpload_Staging`, `dbo.MfgLTUpload_Staging`, `dbo.ReordPtUpload_Staging`, `dbo.ReordQtyUpload_Staging`)
 
 ## DB Targets
 
 - **Est Ship Date**: `sostrs` — `csono` (CHAR10), `clineitem` (CHAR10), `citemno` (CHAR20), `idestship` (DATE)
 - **Item Class**: `iclmas` — `citemno` (CHAR20), `cbuyer` (CHAR10)
 - **Mfg Lead Time**: `iciwhs` — `citemno` (CHAR20), `cwarehouse` (CHAR10), `nmfgltime` (INT). Updates fan out to ALL warehouses per part number. Full-table backup before each upload.
+- **Reorder Point**: `iciwhs` — `citemno` (CHAR20), `cwarehouse` (CHAR10), `nreordpt` (NUMERIC16). Same fan-out + backup pattern as Mfg Lead Time.
+- **Reorder Qty**: `iciwhs` — `citemno` (CHAR20), `cwarehouse` (CHAR10), `nreordqty` (NUMERIC16). Same fan-out + backup pattern as Mfg Lead Time.
 - Connection via ODBC DSN (configured in `config/config.ini`)
 
 ## Commands

@@ -4,7 +4,7 @@ A standalone Windows GUI app that automates daily estimated ship date uploads to
 
 ## What It Does
 
-A tabbed interface with three uploaders:
+A tabbed interface with five uploaders:
 
 **Est Ship Date** — Update estimated ship dates on sales order lines (`sostrs`)
 1. Load a CSV with SO number, line item, item number, and new ship date
@@ -17,6 +17,12 @@ A tabbed interface with three uploaders:
 1. Load a CSV with part numbers and new lead times
 2. The app fans out each item to every warehouse that holds it — a single CSV row updates MAIN, HUDSON, NC, etc.
 3. A full backup of `iciwhs` is created before each upload; in-transaction validation verifies the exact row count
+
+**Reorder Point** — Update reorder point (`nreordpt`) across all warehouses in `iciwhs`
+- Same fan-out and backup pattern as Mfg Lead Time
+
+**Reorder Qty** — Update reorder quantity (`nreordqty`) across all warehouses in `iciwhs`
+- Same fan-out and backup pattern as Mfg Lead Time
 
 ## CSV Formats
 
@@ -44,6 +50,22 @@ PART-C300,0
 citemno,cbuyer
 WIDGET-A100,A
 GADGET-B200,MTO
+```
+
+**Reorder Point:**
+```
+citemno,nreordpt
+WIDGET-A100,50
+GADGET-B200,100
+PART-C300,0
+```
+
+**Reorder Qty:**
+```
+citemno,nreordqty
+WIDGET-A100,200
+GADGET-B200,500
+PART-C300,0
 ```
 
 ## Setup

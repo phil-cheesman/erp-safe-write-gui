@@ -10,7 +10,7 @@ from estship_uploader.models import StepResult
 logger = logging.getLogger(__name__)
 
 
-def create_backup(conn, table_name: str, max_backups: int = 3) -> StepResult:
+def create_backup(conn, table_name: str, max_backups: int = 5) -> StepResult:
     """Create a date-stamped backup of a table, rotating old backups.
 
     Creates ``dbo.{table_name}_backup_YYYYMMDD``.  If today's backup already
